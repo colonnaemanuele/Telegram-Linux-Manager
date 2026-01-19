@@ -1,0 +1,11 @@
+[project]
+name = "telegram_SBOT"
+version = "0.1.0"
+description = "Fatt le cazz taj"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv>=1.2.1",
+    "python-telegram-bot>=22.5",
+    "requests>=2.32.5",
+]
