@@ -1,7 +1,7 @@
 [project]
-name = "telegram_SBOT"
-version = "0.1.0"
-description = "Telegram Bot for Linux Server Management"
+name = "Telegram-Linux-Manager"
+version = "0.2.0"
+description = "A simple server information manager about your linux server."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
