@@ -11,5 +11,8 @@ wheels/
 nohup_processes.txt
 bot/.env
 
-private/
 .vscode/
+private/*
+!private/.gitkeep
+scripts/*
+!scripts/.gitkeep
