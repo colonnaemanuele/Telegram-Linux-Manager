@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Controlla se sono stati forniti username e password
+if [[ $# -lt 2 ]]; then
+    echo "❌ Errore: Username e password mancanti!"
+    echo "Uso: $0 <username> <password>"
+    exit 1
+fi
+
+username="$1"
+password="$2"
+
 # URL e file temporaneo per i cookie
 LOGIN_URL="https://autentica.uniba.it:1003/login?"
 COOKIE_FILE=$(mktemp)
@@ -31,14 +41,7 @@ if [[ -z "$MAGIC" ]]; then
 fi
 
 echo "🔑 Magic Token estratto: $MAGIC"
-
-# Richiedi credenziali in modo interattivo
-echo -n "👤 Inserisci username: "
-read username
-echo -n "🔒 Inserisci password: "
-read -s password
-echo  # nuova linea dopo l'input della password
-
+echo "👤 Username e password ricevute da argomenti"
 echo "🔄 Eseguo l'autenticazione..."
 
 # Esegui l'autenticazione
@@ -65,10 +68,7 @@ status_code=$(echo "$auth_response" | grep -i "HTTP/" | awk '{print $2}')
 
 if [ "$status_code" -eq 200 ] || [ "$status_code" -eq 302 ]; then
     echo "✅ Autenticazione completata con successo (HTTP $status_code)"
-
-    # Salva la risposta per debug (opzionale)
-    echo "$auth_response" > /dev/null
-    echo "📝 Risposta salvata in /dev/null"
+    echo "📝 Credenziali validate"
 else
     echo "❌ Autenticazione fallita (HTTP $status_code)"
 fi
