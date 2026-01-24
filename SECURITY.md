@@ -31,8 +31,10 @@ If you discover a security vulnerability in this project, please report it by op
 
 ### 5. File System Access
 - The bot can read disk usage and process information
-- Private scripts in `~/script/private/` may contain sensitive operations
+- Private scripts in `private/` directory may contain sensitive operations
+- The autologin feature uses `~/script/private/login_auto.sh` which is user-specific and not in the repository
 - Review all scripts before making them executable
+- Keep sensitive automation scripts outside the repository
 
 ### 6. Log Files
 - Be careful with log files that might contain sensitive information

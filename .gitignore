@@ -13,8 +13,6 @@ env/
 ENV/
 
 # Environment files - NEVER COMMIT THESE
-bot/.env
-.env
 *.env
 !.env.sample
 
