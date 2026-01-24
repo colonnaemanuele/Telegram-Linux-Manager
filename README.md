@@ -16,6 +16,13 @@ Small Python utility to run the project's main process and helpers.
      ```
 2. Edit `.env` to set required environment variables.
 
+## ⚠️ Security Notice
+**IMPORTANT:** Never commit your `.env` file or share your Telegram bot token publicly!
+- The `.env` file is already in `.gitignore` to prevent accidental commits
+- Keep your `TOKEN` and `USER_MAPPING` configuration private
+- Do not share screenshots or logs that might contain your bot token or user IDs
+- Review all code before running it with elevated privileges (sudo)
+
 ## Run
 - Start normally:
     ```

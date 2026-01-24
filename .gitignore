@@ -8,10 +8,27 @@ wheels/
 
 # Virtual environments
 .venv
-nohup_processes.txt
-bot/.env
+venv/
+env/
+ENV/
 
+# Environment files - NEVER COMMIT THESE
+*.env
+!.env.sample
+
+# Process tracking and logs
+nohup_processes.txt
+*.log
+*.out
+
+# IDE settings
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Private directories
 private/*
 !private/.gitkeep
 scripts/*

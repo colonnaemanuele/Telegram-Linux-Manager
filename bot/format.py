@@ -143,6 +143,9 @@ def format_login_output(output: str) -> str:
     card += "┏━━━━━━━━━━━━━━━━━━━━\n"
 
     if magic_token:
+        # WARNING: This displays the magic token in the chat. 
+        # Ensure this is only sent to authorized users in private chats.
+        # Consider masking or removing this in production environments.
         card += f"┃ 🔑 **Magic Token:** `{magic_token}`\n"
 
     if http_status:
