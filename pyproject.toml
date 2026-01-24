@@ -1,7 +1,7 @@
 [project]
 name = "telegram_SBOT"
 version = "0.1.0"
-description = "Fatt le cazz taj"
+description = "Telegram Bot for Linux Server Management"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
