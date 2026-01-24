@@ -11,4 +11,4 @@ wheels/
 nohup_processes.txt
 bot/.env
 
-scripts/
+private/
