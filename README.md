@@ -1,63 +1,84 @@
-# Script Bot
+# Telegram Linux Manager Bot
 
-Small Python utility to run the project's main process and helpers.
+A simple server information manager bot for your Linux server, built using Python and the Telegram Bot API.
+
+## Table of Contents
+- [Requirements](#requirements)
+- [Setup](#setup)
+- [⚠️ Security Notice](#⚠️-security-notice)
+- [Run the Bot](#run-the-bot)
+- [Commands](#commands)
+- [Files](#files)
+- [Notes](#notes)
 
 ## Requirements
-- Python 3.8+
-- (Optional) project dependencies — install with:
-    ```
-    uv add -r requirements.txt
+- Python 3.11+
+- Install project dependencies using:
+    ```bash
+    pip install -r requirements.txt
     ```
 
 ## Setup
-1. Copy environment file:
-     ```
-     cp .env.sample .env
-     ```
-2. Edit `.env` to set required environment variables.
+1. **Clone the Repository:**
+   ```bash
+   git clone https://github.com/yourusername/Telegram-Linux-Manager.git
+   cd Telegram-Linux-Manager
+   ```
+
+2. **Copy Environment File:**
+   ```bash
+   cp .env.sample .env
+   ```
+
+3. **Edit the `.env` File:**
+   Open the `.env` file in a text editor and set the required environment variables:
+   ```plaintext
+   TOKEN=your_telegram_bot_token
+   USER_MAPPING={"your_telegram_user_id": "your_linux_username"}
+   ```
+   - Replace `your_telegram_bot_token` with the token you received from [BotFather](https://core.telegram.org/bots#botfather).
+   - Replace `your_telegram_user_id` with your Telegram user ID and `your_linux_username` with your Linux username.
+
+4. **Install Dependencies:**
+   Make sure you have the required Python packages installed:
+   ```bash
+   pip install python-dotenv python-telegram-bot requests
+   ```
 
 ## ⚠️ Security Notice
 **IMPORTANT:** Never commit your `.env` file or share your Telegram bot token publicly!
-- The `.env` file is already in `.gitignore` to prevent accidental commits
-- Keep your `TOKEN` and `USER_MAPPING` configuration private
-- Do not share screenshots or logs that might contain your bot token or user IDs
-- Review all code before running it with elevated privileges (sudo)
+- The `.env` file is already in `.gitignore` to prevent accidental commits.
+- Keep your `TOKEN` and `USER_MAPPING` configuration private.
+- Do not share screenshots or logs that might contain your bot token or user IDs.
+- Review all code before running it with elevated privileges (sudo).
 
-## Run
-- Start normally:
+## Run the Bot
+- Start the bot normally:
+    ```bash
+    python main.py
     ```
-    uv run main.py
-    ```
-or make it like a service in your system.
+- Alternatively, you can run it in the background or as a service.
 
-
-## Commands
-1. ```/start```: Invia un messaggio di benvenuto e mostra la lista dei comandi disponibili.
-
-2. ```/status```: Esegue il controllo dei processi attivi tramite la logica interna e restituisce il risultato formattato in Markdown.
-<!-- - Accesso: Limitato al valore configurato in ALLOWED_CHAT_ID. -->
-
-3. ```/scripts```: Elenca i file presenti nella cartella configurata da SCRIPTS_DIR.
-<!-- - Comportamento: Verifica l'esistenza della cartella, segnala se vuota e mostra i nomi dei file.
-- Accesso: Limitato al valore configurato in ALLOWED_CHAT_ID.
-- Errori: Restituisce messaggi di errore in caso di eccezioni di I/O. -->
-
-4. ```/run <script> [args...]```
-Description: Esegue uno script presente in SCRIPTS_DIR con argomenti opzionali.
-<!-- - Sicurezza: Blocca tentativi di traversal (.., /, \) e verifica che il file esista nella cartella degli script.
-- Esecuzione: Avvia il comando con TERM=dumb, timeout di 60 secondi, cattura stdout/stderr, e rimuove i codici ANSI dall'output.
-- Output: Restituisce l'output pulito (se vuoto riporta un messaggio di successo), tronca oltre 4000 caratteri e include eventuali errori stderr.
-- Errori gestiti: TimeoutExpired, PermissionError (suggerimento: chmod +x), eccezioni generiche.
-- Accesso: Limitato al valore configurato in ALLOWED_CHAT_ID. -->
+## Commands
+1. **`/start`**: Sends a welcome message and displays the list of available commands.
+2. **`/status`**: Checks active processes and returns the formatted result in Markdown.
+3. **`/scripts`**: Lists the files present in the configured `SCRIPTS_DIR`.
+4. **`/run <script> [args...]`**: Executes a script present in `SCRIPTS_DIR` with optional arguments.
 
 ## Files
-- `.env`, `.env.sample` — environment variables.
-- `main.py` — entry point.
-- `command.py` — command definitions / CLI logic.
-- `config.py` — configuration loader.
-- `utils.py` — helper utilities.
-- `check_nohup.py` — helper to verify background/nohup run.
+- `.env`, `.env.sample` — Environment variables.
+- `main.py` — Entry point for the bot.
+- `command.py` — Command definitions and CLI logic.
+- `config.py` — Configuration loader.
+- `utils.py` — Helper utilities.
+- `helpers.py` — Helper functions for bot operations.
+- `keyboards.py` — Keyboard layouts for Telegram bot interactions.
+- `format.py` — Formatting functions for output messages.
 
 ## Notes
 - Use a virtual environment for isolation.
 - Adjust logging/output redirection as needed.
+- Ensure your bot has the necessary permissions to operate in the Telegram chat.
+
+## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

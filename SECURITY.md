@@ -41,6 +41,12 @@ If you discover a security vulnerability in this project, please report it by op
 - Don't share logs publicly without redacting sensitive data
 - Regularly clean up old logs
 
+### 7. GPU and Process Information
+- GPU status commands reveal active processes and resource usage
+- Process information includes PIDs, usernames, and command arguments
+- Disk usage analysis shows folder sizes and structure
+- Only share this information with trusted users
+
 ## Security Checklist for Deployment
 
 - [ ] `.env` file is properly configured and not committed to git
@@ -51,16 +57,46 @@ If you discover a security vulnerability in this project, please report it by op
 - [ ] Bot is only used in private chats with authorized users
 - [ ] Regular security updates are applied to dependencies
 - [ ] Server has proper firewall and security configurations
+- [ ] Private scripts are kept outside the repository
+- [ ] Telegram chat is private and not shared
 
 ## Dependencies
 
 Keep all dependencies up to date to avoid known vulnerabilities:
 
 ```bash
-uv sync
+pip install --upgrade python-telegram-bot python-dotenv requests
 ```
 
 Regularly check for security advisories for:
-- python-telegram-bot
-- python-dotenv
-- requests
+- `python-telegram-bot`
+- `python-dotenv`
+- `requests`
+
+## Running with Elevated Privileges
+
+If the bot needs to run certain commands with `sudo`:
+
+1. **Configure sudoers properly:**
+   ```bash
+   sudo visudo
+   ```
+   Add only the necessary commands that can be run without password:
+   ```
+   user_name ALL=(ALL) NOPASSWD: /path/to/specific/command
+   ```
+
+2. **Principle of Least Privilege:**
+   - Only allow specific commands to run with sudo
+   - Avoid granting blanket sudo access
+   - Regularly audit sudoers configuration
+
+3. **Monitor Command Execution:**
+   - Keep logs of all bot-executed commands
+   - Review suspicious activity regularly
+
+## Version Support
+
+- **Python 3.11+** - Always use a supported Python version
+- **Security patches** - Update dependencies regularly for security fixes
+- **Bot API** - Keep python-telegram-bot updated to latest stable version
