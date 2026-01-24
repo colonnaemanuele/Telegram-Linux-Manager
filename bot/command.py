@@ -64,6 +64,7 @@ async def run_command_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await query.edit_message_text(
         text="⚡️ **Run Command**\n\n"
+             "Non sei amministratore =)\n\n"
              "Inserisci il comando da eseguire:\n\n"
              "_Esempio:_ `ls -la /home` oppure `python3 script.py`",
         reply_markup=get_cancel_menu(),
