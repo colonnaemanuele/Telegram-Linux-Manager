@@ -12,3 +12,4 @@ nohup_processes.txt
 bot/.env
 
 private/
+.vscode/
