@@ -1,4 +1,3 @@
-import shutil
 import subprocess
 import re
 import os
@@ -167,5 +166,5 @@ def get_gpu_info():
 
     except FileNotFoundError:
         return []
-    except Exception as e:
+    except Exception:
         return []
