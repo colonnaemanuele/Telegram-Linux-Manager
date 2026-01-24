@@ -1,93 +1,138 @@
 import os
-import subprocess
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import ALLOWED_CHAT_ID, SCRIPTS_DIR
-from utils import get_process_status_logic, strip_ansi_codes
+from helpers import check_auth, execute_script_generic, format_gpu_status
+from keyboards import get_main_menu, get_scripts_menu, get_back_button, get_cancel_menu
+from config import SCRIPTS_DIR
+from utils import get_disk_space_report, get_gpu_info
 
+# --- START & MENU ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Ciao! Comandi disponibili:\n"
-        "/status - Controlla i processi attivi\n"
-        "/scripts - Lista i file nella cartella script\n"
-        "/esegui - Lancia un comando specifico"
-    )
-    
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_chat.id) != str(ALLOWED_CHAT_ID):
-        return
-    await update.message.reply_text("⏳ Controllo in corso...")
-    response_text = get_process_status_logic()
-    await update.message.reply_text(response_text, parse_mode='Markdown')
+    linux_user = await check_auth(update)
+    if not linux_user: return
 
-async def scripts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_chat.id) != str(ALLOWED_CHAT_ID): return
-    if not os.path.exists(SCRIPTS_DIR):
-        await update.message.reply_text(f"⚠️ Errore: La cartella `{SCRIPTS_DIR}` non esiste.", parse_mode='Markdown')
-        return
+    context.user_data.pop('pending_action', None)
+    msg = f"👋 Ciao `{linux_user}`.\nPannello di controllo server."
+    kb = get_main_menu()
 
-    try:
-        files = [f for f in os.listdir(SCRIPTS_DIR)]
-        if not files:
-            await update.message.reply_text(f"📂 La cartella `{SCRIPTS_DIR}` è vuota.", parse_mode='Markdown')
-            return
-
-        message = f"📂 **File in {SCRIPTS_DIR}:**\n\n"
-        for file_name in files:
-            message += f"📜 `{file_name}`\n"
-        await update.message.reply_text(message, parse_mode='Markdown')
-    except Exception as e:
-        await update.message.reply_text(f"❌ Errore nella lettura della cartella: {e}")
-
-async def run(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_chat.id) != str(ALLOWED_CHAT_ID):
-        return
-    
-    if not context.args:
-        await update.message.reply_text("⚠️ Specifica lo script da avviare.\nEsempio: `/run backup.sh full`", parse_mode='Markdown')
-        return
-
-    script_name = context.args[0]
-    script_params = context.args[1:]
-    if '..' in script_name or '/' in script_name or '\\' in script_name:
-        await update.message.reply_text("⛔️ Tentativo di accesso non autorizzato rilevato.")
-        return
-
-    full_path = os.path.join(SCRIPTS_DIR, script_name)
-    if not os.path.exists(full_path):
-        await update.message.reply_text(f"❌ Script `{script_name}` non trovato nella cartella scripts.", parse_mode='Markdown')
-        return
-    
-    await update.message.reply_text(f"🚀 Eseguo `{script_name}` con parametri: {script_params}.", parse_mode='Markdown')
-
-    try:
-        cmd = [full_path] + script_params
-        my_env = os.environ.copy()
-        my_env["TERM"] = "dumb"
-        result = subprocess.run(
-            cmd, 
-            capture_output=True, 
-            text=True, 
-            timeout=60,
-            env=my_env
+    if update.callback_query:
+        await update.callback_query.edit_message_text(msg, reply_markup=kb, parse_mode='Markdown')
+    else:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, 
+            text=msg, 
+            reply_markup=kb, 
+            parse_mode='Markdown'
         )
+        
+        if update.message:
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
 
-        raw_output = result.stdout
-        if result.stderr:
-            raw_output += f"\n\n⚠️ Errori:\n{result.stderr}"
-            
-        clean_output = strip_ansi_codes(raw_output)
-        if not clean_output.strip():
-            clean_output = "✅ Eseguito (Nessun output restituito)."
+# --- STATUS GPU ---
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    linux_user = await check_auth(update)
+    if not linux_user:
+        return
 
-        if len(clean_output) > 4000:
-            clean_output = clean_output[:4000] + "\n... [Output troncato]"
-        await update.message.reply_text(f"📝 **Risultato:**\n```{clean_output}```", parse_mode='Markdown')
+    query = update.callback_query
+    if query:
+        await query.answer("Scansione GPU in corso...")
 
-    except subprocess.TimeoutExpired:
-        await update.message.reply_text("⏰ Lo script ha impiegato troppo tempo ed è stato interrotto.")
-    except PermissionError:
-        await update.message.reply_text("🚫 Errore permessi: Assicurati che lo script abbia `chmod +x`.")
+    processes = get_gpu_info()
+    msg_text = format_gpu_status(processes, filter_user=linux_user)
+    
+    if query:
+        await query.edit_message_text(
+            text=msg_text, 
+            reply_markup=get_back_button(),
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(msg_text, reply_markup=get_back_button(), parse_mode='Markdown')
+
+# --- LISTA SCRIPT ---
+async def list_scripts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_auth(update): return
+    
+    try:
+        files = sorted([f for f in os.listdir(SCRIPTS_DIR) if f.endswith('.sh') or f.endswith('.py')])
+        kb = get_scripts_menu(files)
+        await update.callback_query.edit_message_text("📂 Seleziona uno script:", reply_markup=kb)
     except Exception as e:
-        await update.message.reply_text(f"💥 Errore imprevisto: {str(e)}")
+        await update.callback_query.edit_message_text(f"Errore folder script: {e}", reply_markup=get_back_button())
+
+async def disk_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Chiede all'utente quale cartella controllare"""
+    query = update.callback_query
+    context.user_data['pending_action'] = {
+        'type': 'disk_check',
+        'message_id': query.message.message_id
+    }
+    
+    await query.edit_message_text(
+        "💽 **Analisi Disco**\n\n"
+        "Scrivi il percorso da analizzare (es: `/var` o `/home`).\n"
+        "Il tuo messaggio verrà cancellato automaticamente dopo l'invio.",
+        reply_markup=get_cancel_menu(),
+        parse_mode='Markdown'
+    )
+
+async def retry_disk_root(update: Update, context: ContextTypes.DEFAULT_TYPE, path):
+    """Esegue il check disco direttamente come ROOT su un path specifico"""
+    report = get_disk_space_report(path, as_root=True)
+    await update.callback_query.edit_message_text(
+        report, 
+        reply_markup=get_back_button(), 
+        parse_mode='Markdown'
+    )
+
+async def autologin_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    # context.user_data['pending_action'] = {
+    #     'type': 'script_run',
+    #     'script': 'login_auto.sh',
+    #     'folder': os.path.expanduser('~/script/private'),
+    #     'message_id': query.message.message_id
+    # }
+    await execute_script_generic(
+        update, 
+        context, 
+        'login_auto.sh', 
+        [], 
+        folder=os.path.expanduser('~/script/private'),
+        message_to_edit=query.message
+
+    )
+
+# --- MAIN BUTTON HANDLER ---
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    await query.answer()
+
+    # Navigazione Base
+    if data == "cmd_start": await start(update, context)
+    elif data == "cmd_status": await status(update, context)
+    elif data == "cmd_scripts": await list_scripts(update, context)
+    
+    # Prompt Interattivi
+    elif data == "cmd_disk_prompt": await disk_prompt(update, context)
+    elif data == "cmd_autologin_prompt": await autologin_prompt(update, context)
+    elif data == "cancel_action":
+        context.user_data.pop('pending_action', None)
+        await start(update, context)
+
+    # Logica specifica
+    elif data.startswith("retry_disk_root|"):
+        path = data.split("|")[1]
+        await retry_disk_root(update, context, path)
+
+    elif data.startswith("run_"):
+        # Qui potresti implementare la logica per argomenti script generici se vuoi
+        script = data[4:]
+        # Esegui diretto o chiedi args (puoi usare la stessa logica di prompt)
+        await execute_script_generic(update, context, script, [])
