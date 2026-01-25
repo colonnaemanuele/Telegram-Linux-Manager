@@ -17,8 +17,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("pending_action", None)
     msg = (
         f"👋 **Benvenuto `{linux_user}`!**\n"
-        f"🖥️ _Pannello di Controllo Server_\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🖥️ _Pannello di Controllo Server_\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📊 **GPU Status**\n"
         f"   └ Monitora i tuoi processi GPU attivi\n\n"
         f"📂 **Script**\n"
@@ -27,7 +27,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   └ Scopri chi vuole le mazzate su `/home`\n\n"
         f"🔐 **Autologin**\n"
         f"   └ Attiva la connessione internet\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"_Seleziona un'opzione dal menu qui sotto_ 👇"
     )
     kb = get_main_menu()
@@ -84,13 +84,9 @@ async def list_scripts(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         )
         kb = get_scripts_menu(files)
-        await update.callback_query.edit_message_text(
-            "📂 Seleziona uno script:", reply_markup=kb
-        )
+        await update.callback_query.edit_message_text("📂 Seleziona uno script:", reply_markup=kb)
     except Exception as e:
-        await update.callback_query.edit_message_text(
-            f"Errore folder script: {e}", reply_markup=get_back_button()
-        )
+        await update.callback_query.edit_message_text(f"Errore folder script: {e}", reply_markup=get_back_button())
 
 async def autologin_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -159,8 +155,6 @@ async def gpu_check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_back_gpu(),
         parse_mode="Markdown",
     )
-    
-    
     
 async def disk_check_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mostra il menu delle opzioni di disk check"""
@@ -246,7 +240,6 @@ async def disk_check_custom_prompt(update: Update, context: ContextTypes.DEFAULT
         parse_mode="Markdown"
     )
 
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -286,4 +279,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("run_"):
         script = data[4:]
-        await execute_script_generic(update, context, script, [])
+        if 'login' in script.lower():
+            context.user_data['pending_action'] = {
+                'type': 'login_username',
+                'script': script,
+                'message_id': query.message.message_id
+            }
+            await query.edit_message_text(
+                text=f"🔐 **Login Script: `{script}`**\n\n"
+                     "📝 Inserisci lo **username**:",
+                reply_markup=get_cancel_menu(),
+                parse_mode="Markdown"
+            )
+        else:
+            await execute_script_generic(update, context, script, [], message_to_edit=query.message)

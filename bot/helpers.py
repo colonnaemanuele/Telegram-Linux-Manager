@@ -1,12 +1,12 @@
 import getpass
-from telegram import Update
+from telegram import Update, CallbackQuery, Message
 from telegram.ext import ContextTypes
 import os
 import subprocess
 
 from format import format_disk_space_status, format_login_output
 from config import SCRIPTS_DIR
-from keyboards import get_back_button, get_back_disk
+from keyboards import get_back_button, get_back_disk, get_cancel_menu
 from utils import get_disk_space_report, get_linux_user, strip_ansi_codes
 
 async def check_auth(update: Update):
@@ -105,9 +105,73 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
     action_type = pending.get('type')
     message_id = pending.get('message_id')
     chat_id = update.effective_chat.id
+    
+    # --- AZIONE: LOGIN USERNAME (Step 1) ---
+    if action_type == 'login_username':
+        script_name = pending.get('script')
+        context.user_data['pending_action'] = {
+            'type': 'login_password',
+            'script': script_name,
+            'username': text,
+            'message_id': message_id
+        }
+        
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"🔐 **Login Script: `{script_name}`**\n\n"
+                 f"👤 Username: `{text}`\n\n"
+                 "🔑 Inserisci la **password**:",
+            reply_markup=get_cancel_menu(),
+            parse_mode="Markdown"
+        )
+        return
+    
+    # --- AZIONE: LOGIN PASSWORD (Step 2) ---
+    elif action_type == 'login_password':
+        script_name = pending.get('script')
+        username = pending.get('username')
+        password = text
+        
+        del context.user_data['pending_action']
+        
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"⚙️ Eseguo `{script_name}` con credenziali...",
+            parse_mode='Markdown'
+        )
+        
+        # Create a temporary Update object with callback_query for execute_script_generic
+        temp_message = Message(
+            message_id=message_id,
+            date=update.message.date,
+            chat=update.effective_chat
+        )
+        temp_query = CallbackQuery(
+            id="temp",
+            from_user=update.effective_user,
+            chat_instance="temp",
+            message=temp_message
+        )
+        temp_update = Update(
+            update_id=update.update_id,
+            callback_query=temp_query
+        )
+        
+        # Execute script with username and password as arguments
+        await execute_script_generic(
+            temp_update,
+            context,
+            script_name,
+            [username, password],
+            folder=SCRIPTS_DIR,
+            message_to_edit=temp_message
+        )
+        return
+    
+    
     del context.user_data['pending_action']
-    
-    
     if action_type == 'run_command':
         linux_user = await check_auth(update)
         if not linux_user:
@@ -179,7 +243,7 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         await context.bot.edit_message_text(
             chat_id=chat_id, 
-            message_id=message_id, 
+            message_id=message_id,
             text=f"🔄 Avvio `{script_name}`..."
         )
         await execute_script_generic(update, context, script_name, args, folder=pending.get('folder'))
