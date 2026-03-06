@@ -12,8 +12,18 @@ def get_main_menu():
             InlineKeyboardButton("💽 Disk Usage", callback_data="cmd_disk_check"),
             InlineKeyboardButton("🔐 Autologin", callback_data="cmd_autologin_prompt"),
         ],
+        [InlineKeyboardButton("🤖 Leonardo HPC", callback_data="cmd_leonardo")],
         [InlineKeyboardButton("⚡️ Run Command", callback_data="cmd_run")],
         [InlineKeyboardButton("🔄 Aggiorna Menu", callback_data="cmd_start")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_leonardo_menu():
+    """Menu opzioni Leonardo HPC"""
+    keyboard = [
+        [InlineKeyboardButton("🛰️ Stato Leonardo", callback_data="cmd_leonardo_status")],
+        [InlineKeyboardButton("🔙 Menu Principale", callback_data="cmd_start")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -70,4 +80,10 @@ def get_back_disk():
 def get_back_gpu():
     """Tasto indietro al menu gpu"""
     keyboard = [[InlineKeyboardButton("🔙 Menu GPU Status", callback_data="cmd_status")]]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_back_leonardo():
+    """Tasto indietro al menu Leonardo"""
+    keyboard = [[InlineKeyboardButton("🔙 Menu Leonardo", callback_data="cmd_leonardo")]]
     return InlineKeyboardMarkup(keyboard)

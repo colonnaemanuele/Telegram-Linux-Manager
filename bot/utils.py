@@ -2,8 +2,14 @@ import subprocess
 import re
 import os
 import pwd
+from html import unescape
+
+import requests
 
 from config import USER_MAPPING
+
+
+CINECA_USER_SUPPORT_URL = "https://www.hpc.cineca.it/user-support/"
 
 
 def strip_ansi_codes(text):
@@ -50,7 +56,7 @@ def get_disk_space_report(path="/home", as_root=False):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         return result.stdout.strip()
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -168,3 +174,75 @@ def get_gpu_info():
         return []
     except Exception:
         return []
+
+
+def _clean_html_text(raw_text):
+    """Converte frammenti HTML in testo pulito."""
+    text = re.sub(r"<[^>]+>", " ", raw_text)
+    text = unescape(text)
+    return " ".join(text.split())
+
+
+def get_leonardo_status():
+    """
+    Recupera lo stato di Leonardo dalla pagina User Support di CINECA.
+
+    Ritorna:
+    {
+        "active_sem": "sem1" | "sem2" | "sem3" | None,
+        "status_label": "UP" | "DEGRADED" | "DOWN" | "UNKNOWN",
+        "power_state": "ON" | "DEGRADED" | "OFF" | "UNKNOWN",
+        "dots": {"sem1": bool, "sem2": bool, "sem3": bool},
+        "info_status": str,
+        "source_url": str,
+    }
+    """
+    try:
+        response = requests.get(CINECA_USER_SUPPORT_URL, timeout=15)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        return {"error": f"Impossibile contattare CINECA: {exc}"}
+
+    html_page = response.text
+
+    # Cerca il blocco specifico del link hardware/leonardo seguito dal suo infostatus.
+    pattern = re.compile(
+        r'<a href="[^\"]*?/systems/hardware/leonardo/?[^\"]*">\s*(?P<body>.*?)</a>\s*'
+        r'<div class="infostatus">(?P<info>.*?)</div>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    match = pattern.search(html_page)
+    if not match:
+        return {"error": "Blocco stato Leonardo non trovato nella pagina CINECA."}
+
+    body = match.group("body")
+    info_status = _clean_html_text(match.group("info"))
+
+    dots = {}
+    for sem in ("sem1", "sem2", "sem3"):
+        sem_match = re.search(
+            rf"<span class=['\"]{sem}(?P<extra>[^'\"]*)['\"]></span>",
+            body,
+            flags=re.IGNORECASE,
+        )
+        extra_classes = sem_match.group("extra") if sem_match else ""
+        dots[sem] = "active" in extra_classes.split()
+
+    active_sem = next((sem for sem in ("sem1", "sem2", "sem3") if dots.get(sem)), None)
+
+    status_map = {
+        "sem1": ("UP", "ON"),
+        "sem2": ("DEGRADED", "DEGRADED"),
+        "sem3": ("DOWN", "OFF"),
+        None: ("UNKNOWN", "UNKNOWN"),
+    }
+    status_label, power_state = status_map.get(active_sem, ("UNKNOWN", "UNKNOWN"))
+
+    return {
+        "active_sem": active_sem,
+        "status_label": status_label,
+        "power_state": power_state,
+        "dots": dots,
+        "info_status": info_status or "Nessuna descrizione disponibile.",
+        "source_url": CINECA_USER_SUPPORT_URL,
+    }

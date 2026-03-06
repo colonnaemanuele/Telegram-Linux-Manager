@@ -1,12 +1,24 @@
+import asyncio
 import os
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from helpers import check_auth, execute_script_generic
-from format import format_disk_space_status, format_gpu_status
-from keyboards import get_back_disk, get_back_gpu, get_cancel_menu, get_disk_usage_menu, get_gpu_usage_menu, get_main_menu, get_scripts_menu, get_back_button
+from format import format_disk_space_status, format_gpu_status, format_leonardo_status
+from keyboards import (
+    get_back_button,
+    get_back_disk,
+    get_back_gpu,
+    get_back_leonardo,
+    get_cancel_menu,
+    get_disk_usage_menu,
+    get_gpu_usage_menu,
+    get_leonardo_menu,
+    get_main_menu,
+    get_scripts_menu,
+)
 from config import SCRIPTS_DIR
-from utils import get_disk_space_report, get_gpu_info
+from utils import get_disk_space_report, get_gpu_info, get_leonardo_status
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -27,6 +39,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   └ Scopri chi vuole le mazzate su `/home`\n\n"
         f"🔐 **Autologin**\n"
         f"   └ Attiva la connessione internet\n\n"
+        f"🤖 **Leonardo HPC**\n"
+        f"   └ Leggi stato operativo da CINECA\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"_Seleziona un'opzione dal menu qui sotto_ 👇"
     )
@@ -97,6 +111,37 @@ async def autologin_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [],
         folder=os.path.expanduser("~/script/private"),
         message_to_edit=query.message,
+    )
+
+
+async def leonardo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mostra il sottomenu Leonardo."""
+    linux_user = await check_auth(update)
+    if not linux_user:
+        return
+
+    query = update.callback_query
+    await query.edit_message_text(
+        text="🤖 Leonardo HPC\n\nSeleziona un'azione:",
+        reply_markup=get_leonardo_menu(),
+    )
+
+
+async def leonardo_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recupera e mostra lo stato Leonardo dalla pagina CINECA."""
+    linux_user = await check_auth(update)
+    if not linux_user:
+        return
+
+    query = update.callback_query
+    await query.edit_message_text("⏳ Recupero stato Leonardo da CINECA in corso...")
+
+    status_data = await asyncio.to_thread(get_leonardo_status)
+    msg_text = format_leonardo_status(status_data)
+
+    await query.edit_message_text(
+        text=msg_text,
+        reply_markup=get_back_leonardo(),
     )
 
 async def gpu_check_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -252,6 +297,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await list_scripts(update, context)
     elif data == "cmd_run":
         await run_command_prompt(update, context)
+    elif data == "cmd_leonardo":
+        await leonardo_menu(update, context)
+    elif data == "cmd_leonardo_status":
+        await leonardo_status(update, context)
 
     elif data == "cmd_status":
         await gpu_check_menu(update, context)

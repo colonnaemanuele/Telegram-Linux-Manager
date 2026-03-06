@@ -274,3 +274,31 @@ def mask_sensitive_args(script_name: str, args: list) -> str:
         return " ".join(display_args)
     else:
         return " ".join(args) if args else "(nessuno)"
+
+
+def format_leonardo_status(status_data: dict) -> str:
+    """Formatta lo stato Leonardo HPC estratto dalla pagina CINECA."""
+    if not status_data:
+        return "❌ Nessun dato ricevuto per lo stato Leonardo."
+
+    error = status_data.get("error")
+    if error:
+        return f"❌ Errore recupero stato Leonardo\n\n{error}"
+
+    active_sem = status_data.get("active_sem")
+    power_state = status_data.get("power_state", "UNKNOWN")
+    info_status = status_data.get("info_status", "Nessuna descrizione disponibile.")
+    source_url = status_data.get("source_url", "https://www.hpc.cineca.it/user-support/")
+
+    state_icon = {
+        "sem1": "🟢",
+        "sem2": "🟡",
+        "sem3": "🔴",
+    }.get(active_sem, "⚪")
+
+    return (
+        "🤖 Leonardo HPC\n"
+        f"Status sintetico: {power_state} {state_icon}\n\n"
+        f"InfoStatus: {info_status}\n\n"
+        f"Fonte: {source_url}"
+    )
