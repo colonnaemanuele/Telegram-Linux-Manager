@@ -2,8 +2,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 def get_main_menu():
-    """Tastiera principale: Matrice 2x2 + Tasto Aggiorna"""
     keyboard = [
+        [InlineKeyboardButton("⚡️ Run Command", callback_data="cmd_run")],
         [
             InlineKeyboardButton("📊 GPU Status", callback_data="cmd_status"),
             InlineKeyboardButton("📂 Script Manager", callback_data="cmd_scripts"),
@@ -12,8 +12,10 @@ def get_main_menu():
             InlineKeyboardButton("💽 Disk Usage", callback_data="cmd_disk_check"),
             InlineKeyboardButton("🔐 Autologin", callback_data="cmd_autologin_prompt"),
         ],
-        [InlineKeyboardButton("🤖 Leonardo HPC", callback_data="cmd_leonardo")],
-        [InlineKeyboardButton("⚡️ Run Command", callback_data="cmd_run")],
+        [
+            InlineKeyboardButton("👥 Users Banner", callback_data="cmd_users"),
+            InlineKeyboardButton("🤖 Leonardo HPC", callback_data="cmd_leonardo")
+        ],
         [InlineKeyboardButton("🔄 Aggiorna Menu", callback_data="cmd_start")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -51,6 +53,7 @@ def get_disk_usage_menu(linux_user):
     ]
     return InlineKeyboardMarkup(keyboard)
 
+
 def get_gpu_usage_menu(linux_user):
     """Menu opzioni gpu"""
     keyboard = [
@@ -72,10 +75,12 @@ def get_back_button():
     keyboard = [[InlineKeyboardButton("🔙 Menu Principale", callback_data="cmd_start")]]
     return InlineKeyboardMarkup(keyboard)
 
+
 def get_back_disk():
     """Tasto indietro al menu disk"""
     keyboard = [[InlineKeyboardButton("🔙 Menu Disk Usage", callback_data="cmd_disk_check")]]
     return InlineKeyboardMarkup(keyboard)
+
 
 def get_back_gpu():
     """Tasto indietro al menu gpu"""
@@ -86,4 +91,39 @@ def get_back_gpu():
 def get_back_leonardo():
     """Tasto indietro al menu Leonardo"""
     keyboard = [[InlineKeyboardButton("🔙 Menu Leonardo", callback_data="cmd_leonardo")]]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_users_menu(active_users, hidden_users=None):
+    """Menu utenti attivi con azione disconnessione."""
+    hidden_users = set(hidden_users or [])
+    keyboard = []
+    row = []
+
+    for entry in active_users:
+        username = entry.get("username", "")
+        if username in hidden_users:
+            continue
+
+        sessions = entry.get("sessions", 0)
+        label = f"🔌 {username} ({sessions})"
+        row.append(InlineKeyboardButton(label, callback_data=f"cmd_user_disconnect:{username}"))
+
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([InlineKeyboardButton("✍️ Inserisci username", callback_data="cmd_user_manual")])
+
+    keyboard.append([InlineKeyboardButton("🔄 Aggiorna Lista", callback_data="cmd_users")])
+    keyboard.append([InlineKeyboardButton("🔙 Menu Principale", callback_data="cmd_start")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_back_users():
+    """Tasto indietro al menu users."""
+    keyboard = [[InlineKeyboardButton("🔙 Menu Users", callback_data="cmd_users")]]
     return InlineKeyboardMarkup(keyboard)

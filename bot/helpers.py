@@ -1,13 +1,20 @@
 import getpass
+import logging
 from telegram import Update, CallbackQuery, Message
 from telegram.ext import ContextTypes
 import os
 import subprocess
 
 from format import format_disk_space_status, format_login_output
-from config import SCRIPTS_DIR
-from keyboards import get_back_button, get_back_disk, get_cancel_menu
-from utils import get_disk_space_report, get_linux_user, strip_ansi_codes
+from config import ALLOWED_LINUX_USERS, SCRIPTS_DIR
+from keyboards import get_back_button, get_back_disk, get_back_users, get_cancel_menu
+from utils import (
+    disconnect_user_temporarily,
+    get_disk_space_report,
+    get_linux_user,
+    get_logger,
+    strip_ansi_codes,
+)
 
 async def check_auth(update: Update):
     user_id = update.effective_user.id
@@ -23,6 +30,8 @@ async def execute_script_generic(update, context, script_name, args, override_us
     if not linux_user:
         return
 
+    logger = get_logger("execute_script", linux_user)
+    logger.info(f"Running script: {script_name}")
     base_folder = folder if folder else SCRIPTS_DIR
     full_path = os.path.join(base_folder, script_name)
     target_user = override_user if override_user else linux_user
@@ -76,6 +85,7 @@ async def execute_script_generic(update, context, script_name, args, override_us
                 reply_markup=get_back_button()
             )
     except Exception as e:
+        logger.error(f"Script execution failed: {e}")
         if message_to_edit:
             await context.bot.edit_message_text(
                 chat_id=update.effective_chat.id,
@@ -105,6 +115,13 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
     action_type = pending.get('type')
     message_id = pending.get('message_id')
     chat_id = update.effective_chat.id
+    
+    # Get linux user for logging
+    linux_user = await check_auth(update)
+    if linux_user:
+        logger = get_logger("handle_input", linux_user)
+    else:
+        logger = logging.getLogger("handle_input")
     
     # --- AZIONE: LOGIN USERNAME (Step 1) ---
     if action_type == 'login_username':
@@ -177,6 +194,9 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not linux_user:
             return
         
+        logger = get_logger("handle_input.run_command", linux_user)
+        logger.info("Executed command")
+        
         await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
@@ -214,6 +234,11 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
 
      # --- AZIONE: DISK CHECK CUSTOM ---
     elif action_type == 'disk_check_custom':
+        linux_user = await check_auth(update)
+        if linux_user:
+            logger = get_logger("handle_input.disk_check", linux_user)
+            logger.info("Checked custom disk path")
+        
         path = text
         await context.bot.edit_message_text(
             chat_id=chat_id, 
@@ -238,6 +263,11 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode='Markdown'
         )
     elif action_type == 'script_run':
+        linux_user = await check_auth(update)
+        if linux_user:
+            logger = get_logger("handle_input.script_run", linux_user)
+            logger.info(f"Executed script: {pending.get('script')}")
+        
         script_name = pending.get('script')
         args = text.split()
         
@@ -247,3 +277,55 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             text=f"🔄 Avvio `{script_name}`..."
         )
         await execute_script_generic(update, context, script_name, args, folder=pending.get('folder'))
+
+    elif action_type == 'user_disconnect_manual':
+        linux_user = await check_auth(update)
+        if not linux_user:
+            return
+
+        target_user = text.split()[0] if text else ""
+        if not target_user:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="⚠️ Username non valido.",
+                reply_markup=get_back_users(),
+            )
+            return
+
+        if target_user in ALLOWED_LINUX_USERS:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=f"🛡️ L'utente {target_user} e' protetto e non puo' essere disconnesso.",
+                reply_markup=get_back_users(),
+            )
+            return
+
+        logger = get_logger("handle_input.user_disconnect", linux_user)
+        logger.info(f"Manual disconnect request: {target_user}")
+
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"⏳ Disconnessione di {target_user} in corso...",
+        )
+
+        ok, detail = disconnect_user_temporarily(target_user, timeout_seconds=120)
+        if ok:
+            result_text = (
+                f"✅ Utente {target_user} disconnesso.\n"
+                "⏱️ Blocco login attivo per 2 minuti."
+            )
+        else:
+            result_text = (
+                f"💥 Impossibile disconnettere {target_user}.\n"
+                f"Dettaglio: {detail}"
+            )
+
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=result_text,
+            reply_markup=get_back_users(),
+        )

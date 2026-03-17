@@ -2,11 +2,26 @@ import subprocess
 import re
 import os
 import pwd
+import logging
+import shlex
 from html import unescape
 
 import requests
 
 from config import USER_MAPPING
+
+
+class UserLoggerAdapter(logging.LoggerAdapter):
+    """LoggerAdapter che aggiunge lo username ai log"""
+    def process(self, msg, kwargs):
+        username = self.extra.get('username', 'unknown')
+        return f"[{username}] {msg}", kwargs
+
+
+def get_logger(name, username='unknown'):
+    """Ottiene un logger configurato con lo username dell'utente"""
+    logger = logging.getLogger(name)
+    return UserLoggerAdapter(logger, {'username': username})
 
 
 CINECA_USER_SUPPORT_URL = "https://www.hpc.cineca.it/user-support/"
@@ -58,6 +73,175 @@ def get_disk_space_report(path="/home", as_root=False):
         return result.stdout.strip()
     except Exception:
         return None
+
+
+def get_active_users():
+    """Ritorna utenti attivi (da who) con numero sessioni e host."""
+    try:
+        result = subprocess.run(["who"], capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            return []
+
+        users = {}
+        last_login_cache = {}
+
+        def normalize_host(raw_host):
+            host = (raw_host or "").strip()
+            if not host:
+                return "local"
+
+            # Formato tipico locale: tmux(12345).%0 / screen(...)
+            if host.startswith("tmux(") or host.startswith("screen("):
+                return "tmux"
+
+            if host in {":0", "localhost", "127.0.0.1"}:
+                return "local"
+
+            return host
+
+        def pick_primary_host(hosts):
+            if not hosts:
+                return "local"
+
+            remote_hosts = [h for h in hosts if h not in {"tmux", "local"}]
+            if remote_hosts:
+                return remote_hosts[0]
+
+            if "tmux" in hosts:
+                return "tmux"
+
+            return hosts[0]
+
+        def get_last_login_host(username):
+            if username in last_login_cache:
+                return last_login_cache[username]
+
+            try:
+                result_last = subprocess.run(
+                    ["last", "-n", "20", "-w", username],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result_last.returncode != 0:
+                    last_login_cache[username] = None
+                    return None
+
+                for raw in result_last.stdout.splitlines():
+                    line = raw.strip()
+                    if not line or line.lower().startswith("wtmp begins"):
+                        continue
+
+                    parts = line.split()
+                    if len(parts) < 3 or parts[0] != username:
+                        continue
+
+                    candidate = parts[2].strip()
+                    if candidate in {"-", ":0", "localhost", "127.0.0.1"}:
+                        continue
+                    if candidate.startswith("tmux(") or candidate.startswith("screen("):
+                        continue
+                    if candidate.lower() in {"still", "gone", "down"}:
+                        continue
+
+                    last_login_cache[username] = candidate
+                    return candidate
+            except Exception:
+                pass
+
+            last_login_cache[username] = None
+            return None
+
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            parts = line.split()
+            if not parts:
+                continue
+
+            username = parts[0]
+            host = ""
+            if "(" in line and ")" in line:
+                host = line[line.find("(") + 1 : line.rfind(")")].strip()
+            host = normalize_host(host)
+
+            if username not in users:
+                users[username] = {"username": username, "sessions": 0, "hosts": set()}
+
+            users[username]["sessions"] += 1
+            users[username]["hosts"].add(host)
+
+        normalized = []
+        for user_data in users.values():
+            hosts = sorted(user_data["hosts"])
+            primary_host = pick_primary_host(hosts)
+            if primary_host in {"tmux", "local"}:
+                fallback_host = get_last_login_host(user_data["username"])
+                if fallback_host:
+                    primary_host = fallback_host
+
+            normalized.append(
+                {
+                    "username": user_data["username"],
+                    "sessions": user_data["sessions"],
+                    "hosts": hosts,
+                    "host": primary_host,
+                }
+            )
+
+        normalized.sort(key=lambda x: (-x["sessions"], x["username"]))
+        return normalized
+    except Exception:
+        return []
+
+
+def disconnect_user_temporarily(username, timeout_seconds=120):
+    """Disconnette un utente e lo blocca per timeout_seconds, poi sblocca automaticamente."""
+    safe_user = (username or "").strip()
+    if not safe_user:
+        return False, "Invalid username."
+
+    # Evita input non previsto nel comando shell usato per lo sblocco ritardato.
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.-]*[$]?$", safe_user):
+        return False, "Invalid username format."
+
+    try:
+        # Termina processi/sessioni dell'utente.
+        subprocess.run(
+            ["sudo", "-n", "pkill", "-KILL", "-u", safe_user],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+        lock = subprocess.run(
+            ["sudo", "-n", "usermod", "-L", safe_user],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if lock.returncode != 0:
+            err = (lock.stderr or lock.stdout or "Unable to lock user.").strip()
+            return False, err
+
+        unlock_script = (
+            f"sleep {int(timeout_seconds)}; "
+            f"sudo -n usermod -U {shlex.quote(safe_user)} >/dev/null 2>&1"
+        )
+        subprocess.Popen(
+            ["nohup", "bash", "-lc", unlock_script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        return True, f"User {safe_user} disconnected and blocked for {int(timeout_seconds)} seconds."
+    except Exception as exc:
+        return False, str(exc)
 
 
 def get_gpu_info():

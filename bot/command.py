@@ -2,6 +2,7 @@ import asyncio
 import os
 from telegram import Update
 from telegram.ext import ContextTypes
+from telegram.error import BadRequest
 
 from helpers import check_auth, execute_script_generic
 from format import format_disk_space_status, format_gpu_status, format_leonardo_status
@@ -10,15 +11,24 @@ from keyboards import (
     get_back_disk,
     get_back_gpu,
     get_back_leonardo,
+    get_back_users,
     get_cancel_menu,
     get_disk_usage_menu,
     get_gpu_usage_menu,
     get_leonardo_menu,
     get_main_menu,
     get_scripts_menu,
+    get_users_menu,
 )
-from config import SCRIPTS_DIR
-from utils import get_disk_space_report, get_gpu_info, get_leonardo_status
+from config import ALLOWED_LINUX_USERS, SCRIPTS_DIR
+from utils import (
+    disconnect_user_temporarily,
+    get_active_users,
+    get_disk_space_report,
+    get_gpu_info,
+    get_leonardo_status,
+    get_logger,
+)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -26,6 +36,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not linux_user:
         return
 
+    logger = get_logger("command.start", linux_user)
+    logger.info("Accessed main menu")
     context.user_data.pop("pending_action", None)
     msg = (
         f"👋 **Benvenuto `{linux_user}`!**\n"
@@ -37,6 +49,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   └ Esegui script direttamente da qui\n\n"
         f"💽 **Disk Usage**\n"
         f"   └ Scopri chi vuole le mazzate su `/home`\n\n"
+        f"👥 **Users**\n"
+        f"   └ Utenti attivi e disconnessione temporanea\n\n"
         f"🔐 **Autologin**\n"
         f"   └ Attiva la connessione internet\n\n"
         f"🤖 **Leonardo HPC**\n"
@@ -47,9 +61,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = get_main_menu()
 
     if update.callback_query:
-        await update.callback_query.edit_message_text(
-            msg, reply_markup=kb, parse_mode="Markdown"
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                msg, reply_markup=kb, parse_mode="Markdown"
+            )
+        except BadRequest:
+            pass
     else:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -70,6 +87,9 @@ async def run_command_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not linux_user:
         return
 
+    logger = get_logger("command.run", linux_user)
+    logger.info("Requested custom command execution")
+
     query = update.callback_query
     context.user_data['pending_action'] = {
         'type': 'run_command',
@@ -86,8 +106,12 @@ async def run_command_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def list_scripts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_auth(update):
+    linux_user = await check_auth(update)
+    if not linux_user:
         return
+
+    logger = get_logger("command.scripts", linux_user)
+    logger.info("Listed scripts")
 
     try:
         files = sorted(
@@ -133,6 +157,9 @@ async def leonardo_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not linux_user:
         return
 
+    logger = get_logger("command.leonardo", linux_user)
+    logger.info("Checked Leonardo HPC status")
+
     query = update.callback_query
     await query.edit_message_text("⏳ Recupero stato Leonardo da CINECA in corso...")
 
@@ -167,6 +194,9 @@ async def gpu_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not linux_user:
         return
 
+    logger = get_logger("command.gpu_check", linux_user)
+    logger.info("Checked GPU status (all)")
+
     query = update.callback_query
     await query.edit_message_text(
         text="⏳ Recupero stato GPU in corso...", parse_mode="Markdown"
@@ -186,6 +216,9 @@ async def gpu_check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     linux_user = await check_auth(update)
     if not linux_user:
         return
+
+    logger = get_logger("command.gpu_check", linux_user)
+    logger.info("Checked GPU status (personal)")
 
     query = update.callback_query
     await query.edit_message_text(
@@ -225,6 +258,9 @@ async def disk_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not linux_user:
         return
 
+    logger = get_logger("command.disk_check", linux_user)
+    logger.info("Checked disk usage (/home)")
+
     query = update.callback_query
     await query.edit_message_text(
         text="⏳ Analisi disco `/home` in corso.\nPotrebbe richiedere alcuni minuti...", parse_mode="Markdown"
@@ -247,6 +283,9 @@ async def disk_check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     linux_user = await check_auth(update)
     if not linux_user:
         return
+
+    logger = get_logger("command.disk_check", linux_user)
+    logger.info(f"Checked disk usage ({linux_user} directory)")
 
     query = update.callback_query
     user_path = f"/home/{linux_user}"
@@ -285,6 +324,118 @@ async def disk_check_custom_prompt(update: Update, context: ContextTypes.DEFAULT
         parse_mode="Markdown"
     )
 
+
+async def users_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mostra gli utenti attivi e permette la disconnessione."""
+    linux_user = await check_auth(update)
+    if not linux_user:
+        return
+
+    logger = get_logger("command.users", linux_user)
+    logger.info("Viewed active users")
+
+    query = update.callback_query
+    active_users = get_active_users()
+    protected_users = ALLOWED_LINUX_USERS
+    actionable_users = [
+        entry for entry in active_users if entry.get("username") not in protected_users
+    ]
+
+    if not active_users:
+        try:
+            await query.edit_message_text(
+                text="👥 Nessun utente attivo rilevato al momento.",
+                reply_markup=get_back_users(),
+            )
+        except BadRequest as exc:
+            if "Message is not modified" not in str(exc):
+                raise
+        return
+
+    lines = [
+        "👥 **Utenti attivi adesso**",
+        "",
+        "Chi vuoi punire tra questi studenti?",
+        "",
+    ]
+    for entry in active_users:
+        username = entry.get("username", "unknown")
+        sessions = entry.get("sessions", 0)
+        host = entry.get("host", "local")
+        protected_label = " | `protetto`" if username in protected_users else ""
+        lines.append(f"• `{username}` | `{sessions}` | `{host}`{protected_label}")
+
+    lines.extend([
+        "",
+        f"Utenti disconnettibili ora: `{len(actionable_users)}`",
+        "Seleziona un utente dai pulsanti qui sotto o usa il tasto per inserirlo a mano.",
+    ])
+
+    try:
+        await query.edit_message_text(
+            text="\n".join(lines),
+            reply_markup=get_users_menu(active_users, hidden_users=protected_users),
+            parse_mode="Markdown",
+        )
+    except BadRequest as exc:
+        if "Message is not modified" not in str(exc):
+            raise
+
+
+async def user_disconnect_manual_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Richiede uno username manuale da disconnettere."""
+    linux_user = await check_auth(update)
+    if not linux_user:
+        return
+
+    query = update.callback_query
+    context.user_data["pending_action"] = {
+        "type": "user_disconnect_manual",
+        "message_id": query.message.message_id,
+    }
+
+    await query.edit_message_text(
+        text="✍️ Inserisci lo username Linux da disconnettere per 2 minuti:",
+        reply_markup=get_cancel_menu(),
+    )
+
+
+async def user_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE, target_user: str):
+    """Disconnette un utente e lo blocca per 2 minuti."""
+    linux_user = await check_auth(update)
+    if not linux_user:
+        return
+
+    logger = get_logger("command.users", linux_user)
+
+    query = update.callback_query
+    if target_user in ALLOWED_LINUX_USERS:
+        await query.edit_message_text(
+            text=f"🛡️ L'utente {target_user} e' protetto e non puo' essere disconnesso.",
+            reply_markup=get_back_users(),
+        )
+        return
+
+    await query.edit_message_text(f"⏳ Disconnessione di {target_user} in corso...")
+
+    ok, detail = disconnect_user_temporarily(target_user, timeout_seconds=120)
+    if ok:
+        logger.info(f"Disconnected user: {target_user}")
+        text = (
+            f"✅ Utente {target_user} disconnesso.\n"
+            "⏱️ Blocco login attivo per 2 minuti."
+        )
+    else:
+        text = (
+            f"💥 Impossibile disconnettere {target_user}.\n"
+            f"Dettaglio: {detail}"
+        )
+
+    await query.edit_message_text(
+        text=text,
+        reply_markup=get_back_users(),
+    )
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -297,6 +448,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await list_scripts(update, context)
     elif data == "cmd_run":
         await run_command_prompt(update, context)
+    elif data == "cmd_users":
+        await users_menu(update, context)
+    elif data == "cmd_user_manual":
+        await user_disconnect_manual_prompt(update, context)
     elif data == "cmd_leonardo":
         await leonardo_menu(update, context)
     elif data == "cmd_leonardo_status":
@@ -325,6 +480,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "cancel_action":
         context.user_data.pop("pending_action", None)
         await start(update, context)
+
+    # User Disconnect
+    elif data.startswith("cmd_user_disconnect:"):
+        target_user = data.split(":", 1)[1].strip()
+        await user_disconnect(update, context, target_user)
 
     elif data.startswith("run_"):
         script = data[4:]

@@ -180,8 +180,8 @@ wheels = [
 ]
 
 [[package]]
-name = "telegram-sbot"
-version = "0.1.0"
+name = "telegram-linux-manager"
+version = "0.2.0"
 source = { virtual = "." }
 dependencies = [
     { name = "python-dotenv" },
