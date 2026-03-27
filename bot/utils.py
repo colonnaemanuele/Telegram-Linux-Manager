@@ -16,6 +16,7 @@ from config import (
     HPC_SSH_RETRY_DELAY,
     HPC_SSH_TARGET,
     HPC_SSH_TIMEOUT,
+    HPC_USER_MAPPING,
     USER_MAPPING,
 )
 
@@ -59,6 +60,37 @@ def get_process_owner(pid):
 
 def get_linux_user(tg_id):
     return USER_MAPPING.get(tg_id)
+
+
+def map_hpc_user_to_gandalf_user(hpc_username):
+    """Mappa username HPC (RECAS) -> username Gandalf per risolvere la chiave locale."""
+    safe_hpc_user = (hpc_username or "").strip()
+    if not safe_hpc_user:
+        return ""
+
+    for gandalf_user, mapped_hpc_user in HPC_USER_MAPPING.items():
+        if mapped_hpc_user == safe_hpc_user:
+            return gandalf_user
+
+    return safe_hpc_user
+
+
+def resolve_hpc_ssh_key(gandalf_username):
+    """Risolvi path chiave SSH, supportando placeholder {user}."""
+    key_template = (HPC_SSH_KEY or "").strip()
+    safe_gandalf_user = (gandalf_username or "").strip()
+
+    if key_template:
+        if "{user}" in key_template:
+            return key_template.format(user=safe_gandalf_user)
+        if "yourusername" in key_template and safe_gandalf_user:
+            return key_template.replace("yourusername", safe_gandalf_user)
+        return key_template
+
+    if safe_gandalf_user:
+        return f"/home/{safe_gandalf_user}/.ssh/id_ed25519_recas"
+
+    return ""
 
 
 def get_size_format(b, factor=1024, suffix="B"):
@@ -478,7 +510,7 @@ def get_leonardo_status():
     }
 
 
-def get_hpc_condor_status(hpc_username):
+def get_hpc_condor_status(hpc_username, gandalf_username=None):
     """
     Esegue via SSH un comando Condor su frontend HPC e ritorna output strutturato.
 
@@ -497,8 +529,9 @@ def get_hpc_condor_status(hpc_username):
     """
     raw_target = (HPC_SSH_TARGET or "").strip()
     base_command = (HPC_CONDOR_COMMAND or "condor_q").strip()
-    ssh_key = (HPC_SSH_KEY or "").strip()
     safe_user = (hpc_username or "").strip()
+    safe_gandalf_user = (gandalf_username or safe_user).strip()
+    ssh_key = resolve_hpc_ssh_key(safe_gandalf_user)
     timeout = HPC_SSH_TIMEOUT if HPC_SSH_TIMEOUT > 0 else 25
     max_attempts = max(1, min(HPC_SSH_RETRIES, 5))
     retry_delay = HPC_SSH_RETRY_DELAY if HPC_SSH_RETRY_DELAY >= 0 else 2.0
@@ -517,6 +550,21 @@ def get_hpc_condor_status(hpc_username):
             "hpc_username": safe_user,
         }
 
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.-]*[$]?$", safe_gandalf_user):
+        return {
+            "ok": False,
+            "error": "Formato username Gandalf non valido.",
+            "target": raw_target,
+            "command": base_command,
+            "timeout": timeout,
+            "stdout": "",
+            "stderr": "",
+            "returncode": 1,
+            "has_active_jobs": False,
+            "hpc_username": safe_user,
+            "gandalf_username": safe_gandalf_user,
+        }
+
     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.-]*[$]?$", safe_user):
         return {
             "ok": False,
@@ -529,6 +577,7 @@ def get_hpc_condor_status(hpc_username):
             "returncode": 1,
             "has_active_jobs": False,
             "hpc_username": safe_user,
+            "gandalf_username": safe_gandalf_user,
         }
 
     host = raw_target.split("@", 1)[-1] if "@" in raw_target else raw_target
@@ -623,6 +672,7 @@ def get_hpc_condor_status(hpc_username):
                 "returncode": 124,
                 "has_active_jobs": False,
                 "hpc_username": safe_user,
+                "gandalf_username": safe_gandalf_user,
                 "attempts": attempts_used,
             }
             if attempt < max_attempts:
@@ -640,6 +690,7 @@ def get_hpc_condor_status(hpc_username):
                 "returncode": 127,
                 "has_active_jobs": False,
                 "hpc_username": safe_user,
+                "gandalf_username": safe_gandalf_user,
                 "attempts": attempts_used,
             }
         except Exception as exc:
@@ -654,6 +705,7 @@ def get_hpc_condor_status(hpc_username):
                 "returncode": 1,
                 "has_active_jobs": False,
                 "hpc_username": safe_user,
+                "gandalf_username": safe_gandalf_user,
                 "attempts": attempts_used,
             }
             if attempt < max_attempts:
@@ -686,6 +738,7 @@ def get_hpc_condor_status(hpc_username):
             "returncode": 1,
             "has_active_jobs": False,
             "hpc_username": safe_user,
+            "gandalf_username": safe_gandalf_user,
             "attempts": attempts_used,
         }
 
@@ -705,6 +758,7 @@ def get_hpc_condor_status(hpc_username):
         "returncode": result.returncode,
         "has_active_jobs": has_active_jobs,
         "hpc_username": safe_user,
+        "gandalf_username": safe_gandalf_user,
         "attempts": attempts_used,
     }
 

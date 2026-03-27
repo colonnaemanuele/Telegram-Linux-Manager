@@ -12,6 +12,7 @@ HPC_SSH_TIMEOUT = int(os.getenv('HPC_SSH_TIMEOUT', '25'))
 HPC_SSH_KEY = os.getenv('HPC_SSH_KEY', '')
 HPC_SSH_RETRIES = int(os.getenv('HPC_SSH_RETRIES', '5'))
 HPC_SSH_RETRY_DELAY = float(os.getenv('HPC_SSH_RETRY_DELAY', '2.0'))
+_hpc_user_mapping_str = os.getenv('MAPPING_HPC_USER', '')
 
 _mapping_str = os.getenv('USER_MAPPING', '')
 USER_MAPPING = {}
@@ -27,3 +28,18 @@ if _mapping_str:
         print(f"Errore parsing USER_MAPPING: {e}")
 
 ALLOWED_LINUX_USERS = set(USER_MAPPING.values())
+
+HPC_USER_MAPPING = {}
+
+# Parsing mappatura username Gandalf -> username HPC (RECAS)
+if _hpc_user_mapping_str:
+    try:
+        for pair in _hpc_user_mapping_str.split(','):
+            if ':' in pair:
+                gandalf_user, hpc_user = pair.split(':', 1)
+                gandalf_user = gandalf_user.strip()
+                hpc_user = hpc_user.strip()
+                if gandalf_user and hpc_user:
+                    HPC_USER_MAPPING[gandalf_user] = hpc_user
+    except Exception as e:
+        print(f"Errore parsing MAPPING_HPC_USER: {e}")

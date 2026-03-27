@@ -22,6 +22,7 @@ from utils import (
     get_hpc_condor_status,
     get_linux_user,
     get_logger,
+    map_hpc_user_to_gandalf_user,
     strip_ansi_codes,
 )
 
@@ -356,14 +357,21 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         logger = get_logger("handle_input.leonardo_condor", linux_user)
         logger.info(f"Checked Condor RECAS for user: {hpc_username}")
+        gandalf_username = map_hpc_user_to_gandalf_user(hpc_username)
 
         await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text=f"⏳ Controllo job Condor RECAS per {hpc_username} in corso..."
+            text=(
+                f"⏳ Controllo job Condor RECAS per {hpc_username} in corso...\n"
+            ),
         )
 
-        status_data = await asyncio.to_thread(get_hpc_condor_status, hpc_username)
+        status_data = await asyncio.to_thread(
+            get_hpc_condor_status,
+            hpc_username,
+            gandalf_username,
+        )
         pages = format_hpc_condor_status_pages(status_data)
         first_page = pages[0] if pages else "❌ Nessun output disponibile."
         total_pages = max(1, len(pages))
