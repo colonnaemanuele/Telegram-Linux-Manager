@@ -1,0 +1,17 @@
+' .c;.  .        .         .;cc.     ....,.,..,cc:;;'';'....
+c..:'..          .  .  '    ...     ...;c' ;cdc,,;;:,'';'...
+',do;..'ll;,..      . ;'      ..',:; .'d00.,l:o...',:;;;.,..
+.:Kxc',dxOocok;              cc:lO00d..o0K;''col..''.,c,....
+.;KO0x;;;;,'',,..''. .  ...'.:,,;,::;,cKKK' .'xd. .''.:;....
+''0O0Okcl,'...,dxkkk...co0xd,..;,,;,,kxX00...'x:   .':c;'.. 
+.'0OOOkc:;',.'dOxxkO...dl0xxx'.,l',::xo0kd..:ko. .,'.ldd;.. 
+,lxOO0kl;c....,dlcdk. .olxodo;;:do;;lkokoclkl;... . .,doc'. 
+,lckO0ko;c...''....'.  ...',okkllo,clddxcox:.'....  ..:o;,. 
+:..OO0ko,:.'.......     ...,000olo:ldkdd.    ,c......',,;,. 
+,..kOKkd,,..;..  ...   .    d00:cd;cxxol..   .;:... ..'..;' 
+..,oO00x:'.,: ,dl;'....':oxo.0O'lxloxll;,Ol... .,,,'......:.
+.cddx0Kk:'''l..;;,,;;;;;,::. kO'xdkdOol':KO''  ....,c:l:..;'
+.xdKlOKOc',';.  ....  .....  cx;OokxOx.odkc,. ..cc:,dkKKxlc;
+.ox0OdXOd...'..,;;,'..,cdd:. ,ol0oxk0ccxlooX; ''cldokOKKOK0O
+.xk0kOlOKc....lc:,,,:odddolc:locdclk;.oxxO0N:.;lllloxOXX0KO0
+.:dkkO.c0d....lc:''';llllccc,xolOclc..cldxkK:'oodkkxolxxxOOk
