@@ -14,7 +14,7 @@ def get_main_menu():
         ],
         [
             InlineKeyboardButton("👥 Users Banner", callback_data="cmd_users"),
-            InlineKeyboardButton("🤖 Leonardo HPC", callback_data="cmd_leonardo")
+            InlineKeyboardButton("🤖 Server HPC", callback_data="cmd_leonardo")
         ],
         [InlineKeyboardButton("🔄 Aggiorna Menu", callback_data="cmd_start")],
     ]
@@ -22,9 +22,10 @@ def get_main_menu():
 
 
 def get_leonardo_menu():
-    """Menu opzioni Leonardo HPC"""
+    """Menu opzioni Server HPC"""
     keyboard = [
         [InlineKeyboardButton("🛰️ Stato Leonardo", callback_data="cmd_leonardo_status")],
+        [InlineKeyboardButton("🧮 RECAS", callback_data="cmd_leonardo_condor")],
         [InlineKeyboardButton("🔙 Menu Principale", callback_data="cmd_start")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -91,6 +92,21 @@ def get_back_gpu():
 def get_back_leonardo():
     """Tasto indietro al menu Leonardo"""
     keyboard = [[InlineKeyboardButton("🔙 Menu Leonardo", callback_data="cmd_leonardo")]]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_condor_pagination(page_index, total_pages):
+    """Bottoni navigazione pagine output Condor."""
+    total_pages = max(1, int(total_pages or 1))
+    page_index = max(0, min(int(page_index or 0), total_pages - 1))
+
+    nav_row = [
+        InlineKeyboardButton("⬅️", callback_data=f"cmd_condor_page:{max(page_index - 1, 0)}"),
+        InlineKeyboardButton(f"{page_index + 1}/{total_pages}", callback_data="cmd_condor_page:noop"),
+        InlineKeyboardButton("➡️", callback_data=f"cmd_condor_page:{min(page_index + 1, total_pages - 1)}"),
+    ]
+
+    keyboard = [nav_row, [InlineKeyboardButton("🔙 Menu Leonardo", callback_data="cmd_leonardo")]]
     return InlineKeyboardMarkup(keyboard)
 
 

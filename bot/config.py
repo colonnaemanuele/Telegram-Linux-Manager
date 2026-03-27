@@ -6,6 +6,12 @@ load_dotenv()
 TOKEN = os.getenv('TOKEN')
 SCRIPTS_DIR = os.getenv('SCRIPTS_DIR', 'scripts')
 PROCESSES_FILE = os.getenv('PROCESSES_FILE')
+HPC_SSH_TARGET = os.getenv('HPC_SSH_TARGET', '')
+HPC_CONDOR_COMMAND = os.getenv('HPC_CONDOR_COMMAND', 'condor_q')
+HPC_SSH_TIMEOUT = int(os.getenv('HPC_SSH_TIMEOUT', '25'))
+HPC_SSH_KEY = os.getenv('HPC_SSH_KEY', '')
+HPC_SSH_RETRIES = int(os.getenv('HPC_SSH_RETRIES', '5'))
+HPC_SSH_RETRY_DELAY = float(os.getenv('HPC_SSH_RETRY_DELAY', '2.0'))
 
 _mapping_str = os.getenv('USER_MAPPING', '')
 USER_MAPPING = {}

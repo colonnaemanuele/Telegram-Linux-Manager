@@ -4,11 +4,20 @@ import os
 import pwd
 import logging
 import shlex
+import time
 from html import unescape
 
 import requests
 
-from config import USER_MAPPING
+from config import (
+    HPC_CONDOR_COMMAND,
+    HPC_SSH_KEY,
+    HPC_SSH_RETRIES,
+    HPC_SSH_RETRY_DELAY,
+    HPC_SSH_TARGET,
+    HPC_SSH_TIMEOUT,
+    USER_MAPPING,
+)
 
 
 class UserLoggerAdapter(logging.LoggerAdapter):
@@ -25,6 +34,9 @@ def get_logger(name, username='unknown'):
 
 
 CINECA_USER_SUPPORT_URL = "https://www.hpc.cineca.it/user-support/"
+BOT_DIR = os.path.dirname(__file__)
+LOCKED_SHELL_SCRIPT = os.path.join(BOT_DIR, "assets", "locked_user_shell.sh")
+LOCK_STATE_DIR = os.path.join(os.path.dirname(BOT_DIR), "private", ".locked_shell_state")
 
 
 def strip_ansi_codes(text):
@@ -198,7 +210,7 @@ def get_active_users():
 
 
 def disconnect_user_temporarily(username, timeout_seconds=120):
-    """Disconnette un utente e lo blocca per timeout_seconds, poi sblocca automaticamente."""
+    """Disconnette un utente e imposta una shell bloccata per timeout_seconds."""
     safe_user = (username or "").strip()
     if not safe_user:
         return False, "Invalid username."
@@ -208,6 +220,34 @@ def disconnect_user_temporarily(username, timeout_seconds=120):
         return False, "Invalid username format."
 
     try:
+        if not os.path.isfile(LOCKED_SHELL_SCRIPT):
+            return False, f"Locked shell script not found: {LOCKED_SHELL_SCRIPT}"
+
+        if not os.access(LOCKED_SHELL_SCRIPT, os.X_OK):
+            current_mode = os.stat(LOCKED_SHELL_SCRIPT).st_mode
+            os.chmod(LOCKED_SHELL_SCRIPT, current_mode | 0o111)
+
+        try:
+            user_info = pwd.getpwnam(safe_user)
+        except KeyError:
+            return False, f"User {safe_user} not found."
+
+        current_shell = (user_info.pw_shell or "").strip() or "/bin/bash"
+
+        os.makedirs(LOCK_STATE_DIR, mode=0o700, exist_ok=True)
+        backup_file = os.path.join(LOCK_STATE_DIR, f"{safe_user}.shell")
+
+        restore_shell_fallback = "/bin/bash"
+        if current_shell != LOCKED_SHELL_SCRIPT:
+            with open(backup_file, "w", encoding="utf-8") as f:
+                f.write(f"{current_shell}\n")
+            restore_shell_fallback = current_shell
+        elif os.path.exists(backup_file):
+            with open(backup_file, "r", encoding="utf-8") as f:
+                saved_shell = f.readline().strip()
+            if saved_shell.startswith("/"):
+                restore_shell_fallback = saved_shell
+
         # Termina processi/sessioni dell'utente.
         subprocess.run(
             ["sudo", "-n", "pkill", "-KILL", "-u", safe_user],
@@ -218,19 +258,25 @@ def disconnect_user_temporarily(username, timeout_seconds=120):
         )
 
         lock = subprocess.run(
-            ["sudo", "-n", "usermod", "-L", safe_user],
+            ["sudo", "-n", "usermod", "-s", LOCKED_SHELL_SCRIPT, safe_user],
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
         )
         if lock.returncode != 0:
-            err = (lock.stderr or lock.stdout or "Unable to lock user.").strip()
+            err = (lock.stderr or lock.stdout or "Unable to set locked shell.").strip()
             return False, err
 
         unlock_script = (
             f"sleep {int(timeout_seconds)}; "
-            f"sudo -n usermod -U {shlex.quote(safe_user)} >/dev/null 2>&1"
+            f"RESTORE_SHELL={shlex.quote(restore_shell_fallback)}; "
+            f"if [[ -f {shlex.quote(backup_file)} ]]; then "
+            f"RESTORE_SHELL=$(cat {shlex.quote(backup_file)}); "
+            f"fi; "
+            f"if [[ \"$RESTORE_SHELL\" != /* ]]; then RESTORE_SHELL=/bin/bash; fi; "
+            f"sudo -n usermod -s \"$RESTORE_SHELL\" {shlex.quote(safe_user)} >/dev/null 2>&1; "
+            f"rm -f {shlex.quote(backup_file)}"
         )
         subprocess.Popen(
             ["nohup", "bash", "-lc", unlock_script],
@@ -430,3 +476,239 @@ def get_leonardo_status():
         "info_status": info_status or "Nessuna descrizione disponibile.",
         "source_url": CINECA_USER_SUPPORT_URL,
     }
+
+
+def get_hpc_condor_status(hpc_username):
+    """
+    Esegue via SSH un comando Condor su frontend HPC e ritorna output strutturato.
+
+    Ritorna:
+    {
+        "target": str,
+        "command": str,
+        "timeout": int,
+        "stdout": str,
+        "stderr": str,
+        "returncode": int,
+        "ok": bool,
+        "has_active_jobs": bool,
+        "error": str | None,
+    }
+    """
+    raw_target = (HPC_SSH_TARGET or "").strip()
+    base_command = (HPC_CONDOR_COMMAND or "condor_q").strip()
+    ssh_key = (HPC_SSH_KEY or "").strip()
+    safe_user = (hpc_username or "").strip()
+    timeout = HPC_SSH_TIMEOUT if HPC_SSH_TIMEOUT > 0 else 25
+    max_attempts = max(1, min(HPC_SSH_RETRIES, 5))
+    retry_delay = HPC_SSH_RETRY_DELAY if HPC_SSH_RETRY_DELAY >= 0 else 2.0
+
+    if not safe_user:
+        return {
+            "ok": False,
+            "error": "Username HPC non fornito.",
+            "target": raw_target,
+            "command": base_command,
+            "timeout": timeout,
+            "stdout": "",
+            "stderr": "",
+            "returncode": 1,
+            "has_active_jobs": False,
+            "hpc_username": safe_user,
+        }
+
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.-]*[$]?$", safe_user):
+        return {
+            "ok": False,
+            "error": "Formato username HPC non valido.",
+            "target": raw_target,
+            "command": base_command,
+            "timeout": timeout,
+            "stdout": "",
+            "stderr": "",
+            "returncode": 1,
+            "has_active_jobs": False,
+            "hpc_username": safe_user,
+        }
+
+    host = raw_target.split("@", 1)[-1] if "@" in raw_target else raw_target
+    target = f"{safe_user}@{host}" if host else ""
+    known_hosts_file = os.path.expanduser("~/.ssh/known_hosts")
+
+    if "{user}" in base_command:
+        command = base_command.format(user=safe_user)
+    else:
+        command = f"{base_command} {safe_user}".strip()
+
+    if not target:
+        return {
+            "ok": False,
+            "error": "HPC_SSH_TARGET non configurato.",
+            "target": target,
+            "command": command,
+            "timeout": timeout,
+            "stdout": "",
+            "stderr": "",
+            "returncode": 1,
+            "has_active_jobs": False,
+        }
+
+    # Evita blocchi non interattivi quando la host key cambia su RECAS.
+    try:
+        os.makedirs(os.path.dirname(known_hosts_file), mode=0o700, exist_ok=True)
+        for stale_entry in (host, f"[{host}]:22"):
+            subprocess.run(
+                ["ssh-keygen", "-f", known_hosts_file, "-R", stale_entry],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+    except Exception:
+        pass
+
+    ssh_cmd = [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "IdentitiesOnly=yes",
+        "-o",
+        "PreferredAuthentications=publickey",
+        # RECAS frontend puo' presentare host key diverse: evita prompt/manual input.
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "GlobalKnownHostsFile=/dev/null",
+        "-o",
+        "LogLevel=ERROR",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ServerAliveInterval=10",
+        "-o",
+        "ServerAliveCountMax=1",
+    ]
+
+    if ssh_key:
+        ssh_cmd.extend(["-i", ssh_key])
+
+    ssh_cmd.extend([target, command])
+
+    result = None
+    last_error = None
+    attempts_used = 0
+
+    for attempt in range(1, max_attempts + 1):
+        attempts_used = attempt
+        try:
+            result = subprocess.run(
+                ssh_cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            last_error = {
+                "ok": False,
+                "error": f"Timeout SSH dopo {timeout}s.",
+                "target": target,
+                "command": command,
+                "timeout": timeout,
+                "stdout": "",
+                "stderr": "",
+                "returncode": 124,
+                "has_active_jobs": False,
+                "hpc_username": safe_user,
+                "attempts": attempts_used,
+            }
+            if attempt < max_attempts:
+                time.sleep(retry_delay)
+            continue
+        except FileNotFoundError:
+            return {
+                "ok": False,
+                "error": "Comando ssh non trovato sul server locale.",
+                "target": target,
+                "command": command,
+                "timeout": timeout,
+                "stdout": "",
+                "stderr": "",
+                "returncode": 127,
+                "has_active_jobs": False,
+                "hpc_username": safe_user,
+                "attempts": attempts_used,
+            }
+        except Exception as exc:
+            last_error = {
+                "ok": False,
+                "error": str(exc),
+                "target": target,
+                "command": command,
+                "timeout": timeout,
+                "stdout": "",
+                "stderr": "",
+                "returncode": 1,
+                "has_active_jobs": False,
+                "hpc_username": safe_user,
+                "attempts": attempts_used,
+            }
+            if attempt < max_attempts:
+                time.sleep(retry_delay)
+            continue
+
+        if result.returncode == 0:
+            break
+
+        stderr_attempt = (result.stderr or "").strip()
+        stdout_attempt = (result.stdout or "").strip()
+        err_text = f"{stderr_attempt}\n{stdout_attempt}".lower()
+        is_auth_error = "permission denied" in err_text
+
+        if is_auth_error:
+            break
+
+        if attempt < max_attempts:
+            time.sleep(retry_delay)
+
+    if result is None:
+        return last_error or {
+            "ok": False,
+            "error": "Tentativi SSH esauriti.",
+            "target": target,
+            "command": command,
+            "timeout": timeout,
+            "stdout": "",
+            "stderr": "",
+            "returncode": 1,
+            "has_active_jobs": False,
+            "hpc_username": safe_user,
+            "attempts": attempts_used,
+        }
+
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+    haystack = f"{stdout}\n{stderr}".lower()
+    has_active_jobs = "0 jobs" not in haystack and "no jobs" not in haystack
+
+    payload = {
+        "ok": result.returncode == 0,
+        "error": None,
+        "target": target,
+        "command": command,
+        "timeout": timeout,
+        "stdout": stdout,
+        "stderr": stderr,
+        "returncode": result.returncode,
+        "has_active_jobs": has_active_jobs,
+        "hpc_username": safe_user,
+        "attempts": attempts_used,
+    }
+
+    if result.returncode != 0:
+        payload["error"] = stderr or stdout or "Errore remoto sconosciuto"
+
+    return payload

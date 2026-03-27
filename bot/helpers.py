@@ -1,16 +1,25 @@
 import getpass
 import logging
+import asyncio
 from telegram import Update, CallbackQuery, Message
 from telegram.ext import ContextTypes
 import os
 import subprocess
 
-from format import format_disk_space_status, format_login_output
+from format import format_disk_space_status, format_hpc_condor_status_pages, format_login_output
 from config import ALLOWED_LINUX_USERS, SCRIPTS_DIR
-from keyboards import get_back_button, get_back_disk, get_back_users, get_cancel_menu
+from keyboards import (
+    get_back_button,
+    get_back_disk,
+    get_back_leonardo,
+    get_back_users,
+    get_cancel_menu,
+    get_condor_pagination,
+)
 from utils import (
     disconnect_user_temporarily,
     get_disk_space_report,
+    get_hpc_condor_status,
     get_linux_user,
     get_logger,
     strip_ansi_codes,
@@ -328,4 +337,43 @@ async def handle_input_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             message_id=message_id,
             text=result_text,
             reply_markup=get_back_users(),
+        )
+
+    elif action_type == 'leonardo_condor_user':
+        linux_user = await check_auth(update)
+        if not linux_user:
+            return
+
+        hpc_username = text.split()[0] if text else ""
+        if not hpc_username:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="⚠️ Username HPC non valido.",
+                reply_markup=get_back_leonardo(),
+            )
+            return
+
+        logger = get_logger("handle_input.leonardo_condor", linux_user)
+        logger.info(f"Checked Condor RECAS for user: {hpc_username}")
+
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"⏳ Controllo job Condor RECAS per {hpc_username} in corso..."
+        )
+
+        status_data = await asyncio.to_thread(get_hpc_condor_status, hpc_username)
+        pages = format_hpc_condor_status_pages(status_data)
+        first_page = pages[0] if pages else "❌ Nessun output disponibile."
+        total_pages = max(1, len(pages))
+
+        context.user_data["condor_pages"] = pages
+        context.user_data["condor_page_index"] = 0
+
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=first_page,
+            reply_markup=get_condor_pagination(0, total_pages)
         )

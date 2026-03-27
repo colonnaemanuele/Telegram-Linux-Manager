@@ -13,6 +13,7 @@ from keyboards import (
     get_back_leonardo,
     get_back_users,
     get_cancel_menu,
+    get_condor_pagination,
     get_disk_usage_menu,
     get_gpu_usage_menu,
     get_leonardo_menu,
@@ -39,6 +40,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger = get_logger("command.start", linux_user)
     logger.info("Accessed main menu")
     context.user_data.pop("pending_action", None)
+    context.user_data.pop("condor_pages", None)
+    context.user_data.pop("condor_page_index", None)
     msg = (
         f"👋 **Benvenuto `{linux_user}`!**\n"
         f"🖥️ _Pannello di Controllo Server_\n"
@@ -146,7 +149,7 @@ async def leonardo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
     await query.edit_message_text(
-        text="🤖 Leonardo HPC\n\nSeleziona un'azione:",
+        text="🤖 Server HPC\n\nSeleziona un'azione:",
         reply_markup=get_leonardo_menu(),
     )
 
@@ -169,6 +172,63 @@ async def leonardo_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         text=msg_text,
         reply_markup=get_back_leonardo(),
+    )
+
+
+async def leonardo_condor_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Richiede username e avvia il controllo Condor su RECAS."""
+    linux_user = await check_auth(update)
+    if not linux_user:
+        return
+
+    query = update.callback_query
+    context.user_data["pending_action"] = {
+        "type": "leonardo_condor_user",
+        "message_id": query.message.message_id,
+    }
+
+    await query.edit_message_text(
+        text=(
+            "🧮 **RECAS Condor**\n\n"
+            "Inserisci lo username HPC da controllare."
+        ),
+        reply_markup=get_cancel_menu(),
+        parse_mode="Markdown",
+    )
+
+
+async def leonardo_condor_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Naviga pagine risultato Condor nello stesso messaggio."""
+    linux_user = await check_auth(update)
+    if not linux_user:
+        return
+
+    query = update.callback_query
+    data = query.data or ""
+    page_arg = data.split(":", 1)[1] if ":" in data else "0"
+
+    if page_arg == "noop":
+        return
+
+    pages = context.user_data.get("condor_pages") or []
+    if not pages:
+        await query.edit_message_text(
+            text="⚠️ Nessuna pagina Condor disponibile. Lancia una nuova query.",
+            reply_markup=get_back_leonardo(),
+        )
+        return
+
+    try:
+        idx = int(page_arg)
+    except ValueError:
+        idx = 0
+
+    idx = max(0, min(idx, len(pages) - 1))
+    context.user_data["condor_page_index"] = idx
+
+    await query.edit_message_text(
+        text=pages[idx],
+        reply_markup=get_condor_pagination(idx, len(pages)),
     )
 
 async def gpu_check_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -355,7 +415,7 @@ async def users_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
         "👥 **Utenti attivi adesso**",
         "",
-        "Chi vuoi punire tra questi studenti?",
+        "Chi vuoi punire tra questi coglioni?",
         "",
     ]
     for entry in active_users:
@@ -456,6 +516,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await leonardo_menu(update, context)
     elif data == "cmd_leonardo_status":
         await leonardo_status(update, context)
+    elif data == "cmd_leonardo_condor":
+        await leonardo_condor_status(update, context)
+    elif data.startswith("cmd_condor_page:"):
+        await leonardo_condor_page(update, context)
 
     elif data == "cmd_status":
         await gpu_check_menu(update, context)

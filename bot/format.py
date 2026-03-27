@@ -1,6 +1,7 @@
 from utils import strip_ansi_codes, get_size_format
 import shutil
 import os
+import re
 
 def format_gpu_status(processes, filter_user=None):
     """Formatta lo stato GPU in card leggibili"""
@@ -298,7 +299,125 @@ def format_leonardo_status(status_data: dict) -> str:
 
     return (
         "🤖 Leonardo HPC\n"
-        f"Status sintetico: {power_state} {state_icon}\n\n"
+        f"Status: {power_state} {state_icon}\n\n"
         f"InfoStatus: {info_status}\n\n"
         f"Fonte: {source_url}"
     )
+
+
+def format_hpc_condor_status(status_data: dict) -> str:
+    """Formatta la prima pagina dell'output condor_q in stile testo sintetico."""
+    pages = format_hpc_condor_status_pages(status_data)
+    return pages[0] if pages else "❌ Nessun dato ricevuto dal controllo Condor."
+
+
+def format_hpc_condor_status_pages(status_data: dict, page_size: int = 12) -> list[str]:
+    """Formatta l'output condor_q in pagine, con job RUN in cima."""
+    if not status_data:
+        return ["❌ Nessun dato ricevuto dal controllo Condor."]
+
+    hpc_username = status_data.get("hpc_username", "N/A")
+    command = status_data.get("command", "condor_q")
+    attempts = status_data.get("attempts", 1)
+    stdout = (status_data.get("stdout") or "").strip()
+    stderr = (status_data.get("stderr") or "").strip()
+    err = status_data.get("error")
+
+    if err:
+        details = (stderr or stdout or err)[:1200]
+        return [
+            (
+            "🧮 Condor HPC\n"
+            "Stato: ERRORE ❌\n\n"
+            f"Utente HPC: {hpc_username}\n"
+            f"Comando: {command}\n"
+            f"Tentativi SSH: {attempts}\n"
+            "\n"
+            f"Dettaglio: {details}"
+            )
+        ]
+
+    lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
+    lower_user_total_prefix = f"total for {hpc_username}".lower()
+    total_for_query = next(
+        (ln for ln in lines if ln.lower().startswith("total for query")),
+        "",
+    )
+    total_for_user = next(
+        (ln for ln in lines if ln.lower().startswith(lower_user_total_prefix)),
+        "",
+    )
+
+    # Tieni solo righe job reali (normalmente terminano con cluster.proc, es. 61611.0).
+    job_line_re = re.compile(r"\b\d+\.\d+\s*$")
+    job_lines = [ln for ln in lines if job_line_re.search(ln)]
+
+    def _job_status(line: str) -> str:
+        tokens = line.split()
+        for token in tokens:
+            up = token.upper()
+            if up in {"R", "I", "H", "C", "X", "S"}:
+                return up
+            if up in {"RUN", "RUNNING"}:
+                return "R"
+        return "?"
+
+    def _sort_key(line: str):
+        status = _job_status(line)
+        # RUN prima, poi altri in ordine alfabetico di status e testo.
+        return (0 if status == "R" else 1, status, line)
+
+    ordered_jobs = sorted(job_lines, key=_sort_key)
+
+    status_counts = {}
+    for line in ordered_jobs:
+        st = _job_status(line)
+        status_counts[st] = status_counts.get(st, 0) + 1
+
+    status_summary = " | ".join([f"{k}:{v}" for k, v in sorted(status_counts.items(), key=lambda x: (x[0] != "R", x[0]))]) or "non disponibile"
+    total_jobs = len(ordered_jobs)
+
+    if not ordered_jobs:
+        summary_line = next(
+            (
+                ln
+                for ln in reversed(lines)
+                if " jobs" in ln.lower() or "total for query" in ln.lower()
+            ),
+            "nessun job trovato",
+        )
+        return [
+            (
+                "🧮 Condor HPC\n"
+                "Stato: VUOTO ⚪\n\n"
+                f"Utente HPC: {hpc_username}\n"
+                f"Comando: {command}\n"
+                f"Tentativi SSH: {attempts}\n"
+                f"Totale query: {total_for_query or 'non disponibile'}\n"
+                f"Totale utente: {total_for_user or 'non disponibile'}\n"
+                f"Riepilogo: {summary_line}"
+            )
+        ]
+
+    total_pages = (len(ordered_jobs) + page_size - 1) // page_size
+    pages = []
+    for page_idx in range(total_pages):
+        start = page_idx * page_size
+        end = start + page_size
+        chunk = ordered_jobs[start:end]
+        chunk_text = "\n".join(chunk)
+        pages.append(
+            (
+                "🧮 Condor HPC\n"
+                "Stato: ATTIVO 🟢\n\n"
+                f"Utente HPC: {hpc_username}\n"
+                f"Comando: {command}\n"
+                f"Tentativi SSH: {attempts}\n"
+                f"Totale job: {total_jobs}\n"
+                f"Totale query: {total_for_query or 'non disponibile'}\n"
+                f"Riepilogo stati: {status_summary}\n"
+                f"{chunk_text}"
+            )
+        )
+
+    return pages
