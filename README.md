@@ -21,6 +21,8 @@ A powerful server information manager bot for your Linux server, built using Pyt
 ✅ **Script Manager** - Execute custom scripts with arguments  
 ✅ **Command Runner** - Run arbitrary shell commands as your user  
 ✅ **Auto-login** - Activate internet connectivity with one click  
+✅ **User Management** - View active users and temporarily disconnect them  
+✅ **HPC Monitoring** - Check CINECA Leonardo status and RECAS Condor job queue  
 ✅ **Beautiful Formatting** - Clean, readable Markdown output in Telegram  
 ✅ **User Authentication** - Telegram ID-based access control  
 
@@ -73,7 +75,7 @@ Set the following variables:
 
 ```plaintext
 TOKEN=your_telegram_bot_token_here
-USER_MAPPING={"your_telegram_user_id": "your_linux_username"}
+USER_MAPPING=your_telegram_user_id:your_linux_username
 SCRIPTS_DIR=~/script/scripts
 ```
 
@@ -213,12 +215,22 @@ sudo journalctl -u telegram-bot -f
 - Requires `private/login_auto.sh` script (based on your server)
 - One-click activation
 
+### 👥 Users Banner
+- Lists all currently active users (from `who`) with session count and origin host
+- One-click disconnect: kills all sessions of a selected user and locks their login for 2 minutes
+- Manual username input for disconnecting users not shown in the list
+- Bot-managed users (those in `USER_MAPPING`) are protected and cannot be disconnected
+
+### 🤖 Server HPC
+- **Stato Leonardo** — Fetches the live operational status of CINECA Leonardo from the official user-support page (UP / DEGRADED / DOWN)
+- **RECAS Condor** — SSHes into the configured HPC frontend and runs `condor_q` for a given HPC username; results are paginated and shown in-chat
+
 ## Project Structure
 
 ```
 Telegram-Linux-Manager/
 ├── bot/
-│   ├── __init__.py
+│   ├── assets/              # Static assets (ASCII art frames, shell scripts)
 │   ├── main.py              # Entry point
 │   ├── command.py           # Command handlers
 │   ├── config.py            # Configuration loader
@@ -228,9 +240,11 @@ Telegram-Linux-Manager/
 │   ├── utils.py             # Utility functions
 │   ├── .env                 # Environment variables (DO NOT COMMIT)
 │   └── .env.sample          # Environment template
+├── private/                 # Private scripts (gitignored)
+├── scripts/                 # User scripts (gitignored)
 ├── README.md                # This file
 ├── SECURITY.md              # Security guidelines
-├── LICENSE                  # MIT License
+├── LICENSE.md               # MIT License
 └── pyproject.toml           # Project metadata
 ```
 
@@ -238,18 +252,25 @@ Telegram-Linux-Manager/
 
 ### Environment Variables
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `TOKEN` | Telegram Bot Token | `123456789:ABCdefGHIjklmnoPQRstuvWXYZ` |
-| `USER_MAPPING` | User ID to Linux username mapping | `{"987654321": "emanuele"}` |
-| `SCRIPTS_DIR` | Directory containing scripts | `~/script/scripts` |
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `TOKEN` | Telegram Bot Token | — | `123456789:ABCdefGHIjklmnoPQRstuvWXYZ` |
+| `USER_MAPPING` | Telegram ID → Linux username pairs (comma-separated) | — | `123456789:yourusername,987654321:anotheruser` |
+| `SCRIPTS_DIR` | Directory containing executable scripts | `scripts` | `~/scripts` |
+| `HPC_SSH_TARGET` | SSH target for the HPC frontend (`user@host`) | — | `myuser@hpc.example.com` |
+| `HPC_CONDOR_COMMAND` | Condor command to run on the HPC frontend | `condor_q` | `condor_q -all` |
+| `HPC_SSH_TIMEOUT` | SSH connection timeout in seconds | `25` | `30` |
+| `HPC_SSH_KEY` | Path to SSH private key; supports `{user}` placeholder | — | `/home/{user}/.ssh/id_ed25519_recas` |
+| `HPC_SSH_RETRIES` | Number of SSH retry attempts | `5` | `3` |
+| `HPC_SSH_RETRY_DELAY` | Delay between SSH retries in seconds | `2.0` | `1.5` |
+| `MAPPING_HPC_USER` | Maps local usernames to HPC usernames (comma-separated) | — | `localuser:hpcuser,user2:hpcuser2` |
 
 ### User Mapping
 
-Add multiple users to `USER_MAPPING`:
+Add multiple users to `USER_MAPPING` using the `chat_id:linux_username` format, separated by commas:
 
 ```plaintext
-USER_MAPPING={"user_id_1": "username_1", "user_id_2": "username_2"}
+USER_MAPPING=user_id_1:username_1,user_id_2:username_2
 ```
 
 Only users in this mapping can access the bot.
